@@ -1,4 +1,5 @@
 # coding: utf-8
+from __future__ import with_statement
 
 import re
 import datetime
@@ -20,13 +21,13 @@ from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.admin.views.main import IS_POPUP_VAR
 from django.forms.util import ErrorList
 import django.template.context
+from django.template.response import TemplateResponse
 from django.test import TestCase
-from django.utils import formats
+from django.utils import formats, translation
 from django.utils.cache import get_max_age
 from django.utils.encoding import iri_to_uri
 from django.utils.html import escape
 from django.utils.http import urlencode
-from django.utils.translation import activate, deactivate
 from django.utils import unittest
 
 # local test models
@@ -76,6 +77,7 @@ class AdminViewBasicTest(TestCase):
         A smoke test to ensure GET on the add_view works.
         """
         response = self.client.get('/test_admin/%s/admin_views/section/add/' % self.urlbit)
+        self.assertIsInstance(response, TemplateResponse)
         self.assertEqual(response.status_code, 200)
 
     def testAddWithGETArgs(self):
@@ -91,6 +93,7 @@ class AdminViewBasicTest(TestCase):
         A smoke test to ensure GET on the change_view works.
         """
         response = self.client.get('/test_admin/%s/admin_views/section/1/' % self.urlbit)
+        self.assertIsInstance(response, TemplateResponse)
         self.assertEqual(response.status_code, 200)
 
     def testBasicEditGetStringPK(self):
@@ -358,42 +361,31 @@ class AdminViewBasicTest(TestCase):
         if the default language is non-English but the selected language
         is English. See #13388 and #3594 for more details.
         """
-        try:
-            settings.LANGUAGE_CODE = 'fr'
-            activate('en-us')
-            response = self.client.get('/test_admin/admin/jsi18n/')
-            self.assertNotContains(response, 'Choisir une heure')
-        finally:
-            deactivate()
+        with self.settings(LANGUAGE_CODE='fr'):
+            with translation.override('en-us'):
+                response = self.client.get('/test_admin/admin/jsi18n/')
+                self.assertNotContains(response, 'Choisir une heure')
 
     def testI18NLanguageNonEnglishFallback(self):
         """
         Makes sure that the fallback language is still working properly
         in cases where the selected language cannot be found.
         """
-        try:
-            settings.LANGUAGE_CODE = 'fr'
-            activate('none')
-            response = self.client.get('/test_admin/admin/jsi18n/')
-            self.assertContains(response, 'Choisir une heure')
-        finally:
-            deactivate()
+        with self.settings(LANGUAGE_CODE='fr'):
+            with translation.override('none'):
+                response = self.client.get('/test_admin/admin/jsi18n/')
+                self.assertContains(response, 'Choisir une heure')
 
     def testL10NDeactivated(self):
         """
         Check if L10N is deactivated, the Javascript i18n view doesn't
         return localized date/time formats. Refs #14824.
         """
-        try:
-            settings.LANGUAGE_CODE = 'ru'
-            settings.USE_L10N = False
-            activate('ru')
-            response = self.client.get('/test_admin/admin/jsi18n/')
-            self.assertNotContains(response, '%d.%m.%Y %H:%M:%S')
-            self.assertContains(response, '%Y-%m-%d %H:%M:%S')
-        finally:
-            deactivate()
-
+        with self.settings(LANGUAGE_CODE='ru', USE_L10N=False):
+            with translation.override('none'):
+                response = self.client.get('/test_admin/admin/jsi18n/')
+                self.assertNotContains(response, '%d.%m.%Y %H:%M:%S')
+                self.assertContains(response, '%Y-%m-%d %H:%M:%S')
 
     def test_disallowed_filtering(self):
         self.assertRaises(SuspiciousOperation,
@@ -488,40 +480,47 @@ class CustomModelAdminTest(AdminViewBasicTest):
 
     def testCustomAdminSiteLoginForm(self):
         self.client.logout()
-        request = self.client.get('/test_admin/admin2/')
-        self.assertEqual(request.status_code, 200)
+        response = self.client.get('/test_admin/admin2/')
+        self.assertIsInstance(response, TemplateResponse)
+        self.assertEqual(response.status_code, 200)
         login = self.client.post('/test_admin/admin2/', {
             REDIRECT_FIELD_NAME: '/test_admin/admin2/',
             LOGIN_FORM_KEY: 1,
             'username': 'customform',
             'password': 'secret',
         })
+        self.assertIsInstance(login, TemplateResponse)
         self.assertEqual(login.status_code, 200)
         self.assertContains(login, 'custom form error')
 
     def testCustomAdminSiteLoginTemplate(self):
         self.client.logout()
         request = self.client.get('/test_admin/admin2/')
+        self.assertIsInstance(request, TemplateResponse)
         self.assertTemplateUsed(request, 'custom_admin/login.html')
         self.assertTrue('Hello from a custom login template' in request.content)
 
     def testCustomAdminSiteLogoutTemplate(self):
         request = self.client.get('/test_admin/admin2/logout/')
+        self.assertIsInstance(request, TemplateResponse)
         self.assertTemplateUsed(request, 'custom_admin/logout.html')
         self.assertTrue('Hello from a custom logout template' in request.content)
 
     def testCustomAdminSiteIndexViewAndTemplate(self):
         request = self.client.get('/test_admin/admin2/')
+        self.assertIsInstance(request, TemplateResponse)
         self.assertTemplateUsed(request, 'custom_admin/index.html')
         self.assertTrue('Hello from a custom index template *bar*' in request.content)
 
     def testCustomAdminSitePasswordChangeTemplate(self):
         request = self.client.get('/test_admin/admin2/password_change/')
+        self.assertIsInstance(request, TemplateResponse)
         self.assertTemplateUsed(request, 'custom_admin/password_change_form.html')
         self.assertTrue('Hello from a custom password change form template' in request.content)
 
     def testCustomAdminSitePasswordChangeDoneTemplate(self):
         request = self.client.get('/test_admin/admin2/password_change/done/')
+        self.assertIsInstance(request, TemplateResponse)
         self.assertTemplateUsed(request, 'custom_admin/password_change_done.html')
         self.assertTrue('Hello from a custom password change done template' in request.content)
 
@@ -631,7 +630,7 @@ class AdminViewPermissionsTest(TestCase):
         self.assertFalse(login.context)
         self.client.get('/test_admin/admin/logout/')
 
-        # Test if user enters email address
+        # Test if user enters e-mail address
         request = self.client.get('/test_admin/admin/')
         self.assertEqual(request.status_code, 200)
         login = self.client.post('/test_admin/admin/', self.super_email_login)
@@ -641,7 +640,7 @@ class AdminViewPermissionsTest(TestCase):
         self.assertContains(login, "Please enter a correct username and password.")
         new_user = User(username='jondoe', password='secret', email='super@example.com')
         new_user.save()
-        # check to ensure if there are multiple email addresses a user doesn't get a 500
+        # check to ensure if there are multiple e-mail addresses a user doesn't get a 500
         login = self.client.post('/test_admin/admin/', self.super_email_login)
         self.assertContains(login, "Please enter a correct username and password.")
 
@@ -1227,7 +1226,7 @@ class SecureViewTests(TestCase):
         # make sure the view removes test cookie
         self.assertEqual(self.client.session.test_cookie_worked(), False)
 
-        # Test if user enters email address
+        # Test if user enters e-mail address
         request = self.client.get('/test_admin/admin/secure-view/')
         self.assertEqual(request.status_code, 200)
         login = self.client.post('/test_admin/admin/secure-view/', self.super_email_login)
@@ -1237,7 +1236,7 @@ class SecureViewTests(TestCase):
         self.assertContains(login, "Please enter a correct username and password.")
         new_user = User(username='jondoe', password='secret', email='super@example.com')
         new_user.save()
-        # check to ensure if there are multiple email addresses a user doesn't get a 500
+        # check to ensure if there are multiple e-mail addresses a user doesn't get a 500
         login = self.client.post('/test_admin/admin/secure-view/', self.super_email_login)
         self.assertContains(login, "Please enter a correct username and password.")
 
@@ -1874,7 +1873,8 @@ class AdminActionsTest(TestCase):
             'post': 'yes',
         }
         confirmation = self.client.post('/test_admin/admin/admin_views/subscriber/', action_data)
-        self.assertContains(confirmation, "Are you sure you want to delete the selected subscribers")
+        self.assertIsInstance(confirmation, TemplateResponse)
+        self.assertContains(confirmation, "Are you sure you want to delete the selected subscribers?")
         self.assertTrue(confirmation.content.count(ACTION_CHECKBOX_NAME) == 2)
         response = self.client.post('/test_admin/admin/admin_views/subscriber/', delete_confirmation_data)
         self.assertEqual(Subscriber.objects.count(), 0)
@@ -1959,6 +1959,20 @@ class AdminActionsTest(TestCase):
         url = '/test_admin/admin/admin_views/externalsubscriber/?ot=asc&o=1'
         response = self.client.post(url, action_data)
         self.assertRedirects(response, url)
+
+    def test_actions_ordering(self):
+        """
+        Ensure that actions are ordered as expected.
+        Refs #15964.
+        """
+        response = self.client.get('/test_admin/admin/admin_views/externalsubscriber/')
+        self.assertTrue('''<label>Action: <select name="action">
+<option value="" selected="selected">---------</option>
+<option value="delete_selected">Delete selected external subscribers</option>
+<option value="redirect_to">Redirect to (Awesome action)</option>
+<option value="external_mail">External mail (Another awesome action)</option>
+</select>'''in response.content,
+        )
 
     def test_model_without_action(self):
         "Tests a ModelAdmin without any action"
@@ -2578,6 +2592,30 @@ class NeverCacheTests(TestCase):
         response = self.client.get('/test_admin/admin/jsi18n/')
         self.assertEqual(get_max_age(response), None)
 
+
+class PrePopulatedTest(TestCase):
+    fixtures = ['admin-views-users.xml']
+
+    def setUp(self):
+        self.client.login(username='super', password='secret')
+
+    def tearDown(self):
+        self.client.logout()
+
+    def test_prepopulated_on(self):
+        response = self.client.get('/test_admin/admin/admin_views/prepopulatedpost/add/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "id: '#id_slug',")
+        self.assertContains(response, "field['dependency_ids'].push('#id_title');")
+        self.assertContains(response, "id: '#id_prepopulatedsubpost_set-0-subslug',")
+
+    def test_prepopulated_off(self):
+        response = self.client.get('/test_admin/admin/admin_views/prepopulatedpost/1/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "A Long Title")
+        self.assertNotContains(response, "id: '#id_slug'")
+        self.assertNotContains(response, "field['dependency_ids'].push('#id_title');")
+        self.assertNotContains(response, "id: '#id_prepopulatedsubpost_set-0-subslug',")
 
 class ReadonlyTest(TestCase):
     fixtures = ['admin-views-users.xml']
